@@ -55,6 +55,7 @@ def carregar_dados_manifestacoes():
     """
     Carrega os dados gerais pulando o cabeçalho quebrado do arquivo da ANVISA.
     """
+    # Verifique se o nome no GitHub tem o "a" extra no final
     arquivo = "ListaManifestacaoAtualizadaa.csv" 
     
     try:
@@ -133,7 +134,6 @@ with tab1:
         
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            # Gráfico de Tipo usando a coluna renomeada na busca flexível
             c_tipo = "Tipo_Manifestacao_Limpo"
             if c_tipo in df_pesq_filtrado.columns:
                 fig_tipo = px.pie(df_pesq_filtrado, names=c_tipo, title='Tipo de Manifestação')
@@ -142,11 +142,13 @@ with tab1:
                 st.warning("Coluna 'Tipo de Manifestação' não encontrada.")
         
         with col_p2:
-            # Gráfico de Satisfação usando a coluna renomeada
             c_sat = "Satisfacao_Limpa"
             if c_sat in df_pesq_filtrado.columns:
+                # Correção para erro de 'count' ou 'index' nomeando manualmente
                 dados_sat = df_pesq_filtrado[c_sat].value_counts().reset_index()
-                fig_sat = px.bar(dados_sat, x='count', y=c_sat, orientation='h', title='Nível de Satisfação')
+                dados_sat.columns = [c_sat, 'quantidade']
+                
+                fig_sat = px.bar(dados_sat, x='quantidade', y=c_sat, orientation='h', title='Nível de Satisfação')
                 st.plotly_chart(fig_sat, use_container_width=True)
             else:
                 st.warning("Coluna de Satisfação não encontrada.")
@@ -161,7 +163,9 @@ with tab2:
     with col_m1:
         st.subheader("Top 10 Assuntos")
         top_temas = df_manifest_filtrado['Assunto'].value_counts().nlargest(10).reset_index()
-        fig_temas = px.bar(top_temas, x='count', y='Assunto', orientation='h')
+        top_temas.columns = ['Assunto', 'quantidade']
+        
+        fig_temas = px.bar(top_temas, x='quantidade', y='Assunto', orientation='h')
         st.plotly_chart(fig_temas, use_container_width=True)
         
     with col_m2:
@@ -171,4 +175,6 @@ with tab2:
 
     if "Área Responsável" in df_manifest_filtrado.columns:
         st.subheader("Demandas por Área")
-        st.dataframe(df_manifest_filtrado['Área Responsável'].value_counts(), use_container_width=True)
+        contagem_area = df_manifest_filtrado['Área Responsável'].value_counts().reset_index()
+        contagem_area.columns = ['Área', 'Total']
+        st.dataframe(contagem_area, use_container_width=True, hide_index=True)
