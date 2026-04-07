@@ -61,20 +61,23 @@ def carregar_dados_manifestacoes():
     
 # --- TENTATIVA DE LEITURA ROBUSTA ---
     try:
-        # 1. Tenta ler com ponto e vírgula (padrão Excel PT-BR)
-        df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
+        # Tenta ler apenas as primeiras 5 linhas para testar o separador rapidamente
+        # Isso evita que o Streamlit trave tentando ler 10 mil linhas do jeito errado
+        df_teste = pd.read_csv(arquivo, sep=";", encoding='latin-1', nrows=5)
         
-        # Verifica se leu tudo em uma única coluna
-        if len(df.columns) <= 1:
-            # Se deu errado, força a leitura com vírgula
+        if len(df_teste.columns) <= 1:
+            # Se só veio 1 coluna, o separador real é a vírgula
             df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
+        else:
+            # Se veio mais de 1 coluna, o ponto e vírgula está correto
+            df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
              
     except Exception as e:
-        # Caso a primeira tentativa falhe completamente
+        # Se falhar com latin-1, tenta com utf-8 por desencargo
         try:
-            df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
-        except Exception as e:
-            st.error(f"Erro crítico ao ler '{arquivo}'. Detalhes: {e}")
+            df = pd.read_csv(arquivo, sep=";", encoding='utf-8-sig')
+        except:
+            st.error(f"Erro crítico ao ler '{arquivo}'. Verifique o arquivo.")
             return None
 
     # --- PROCESSAMENTO DOS DADOS ---
