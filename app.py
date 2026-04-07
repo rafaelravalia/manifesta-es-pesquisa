@@ -80,15 +80,6 @@ def carregar_dados_manifestacoes():
             st.error(f"Erro crítico ao ler '{arquivo}'. Verifique o arquivo.")
             return None
 
-    # --- PROCESSAMENTO DOS DADOS ---
-             
-    except:
-        # 2. Se a primeira tentativa falhar (ParserError), tenta direto com vírgula
-        try:
-            df = pd.read_csv(arquivo, sep=",", encoding='utf-8')
-        except Exception as e:
-            st.error(f"Erro crítico ao ler '{arquivo}'. Verifique se o arquivo é um CSV válido. Detalhes: {e}")
-            return None
 
     # --- PROCESSAMENTO DOS DADOS ---
     try:
