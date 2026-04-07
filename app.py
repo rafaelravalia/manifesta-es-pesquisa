@@ -51,26 +51,24 @@ def carregar_dados_manifestacoes():
     arquivo = "ListaManifestacaoAtualizadaa.csv"
     df = None
     
-# --- TENTATIVA DE LEITURA ROBUSTA ---
+# --- TENTATIVA DE LEITURA ROBUSTA (VERSÃO PARA PULAR LINHAS QUEBRADAS) ---
     try:
-        # Tenta ler apenas as primeiras 5 linhas para testar o separador rapidamente
-        # Isso evita que o Streamlit trave tentando ler 10 mil linhas do jeito errado
-        df_teste = pd.read_csv(arquivo, sep=";", encoding='latin-1', nrows=5)
-        
-        if len(df_teste.columns) <= 1:
-            # Se só veio 1 coluna, o separador real é a vírgula
-            df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
-        else:
-            # Se veio mais de 1 coluna, o ponto e vírgula está correto
-            df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
+        # Definimos os nomes das colunas manualmente para evitar erros de leitura no topo
+        colunas_corretas = [
+            'Situação', 'NUP', 'Tipo', 'Registrado Por', 'Possui Denúncia', 
+            'Assunto', 'Subassunto', 'Tag', 'Data', 'Data de Abertura', 
+            'Prazo', 'Data Encaminhamento', 'Qtde', 'Esfera', 'Serviço Federal', 
+            'Serviço Não Federal', 'Outro Serviço', 'Órgão Destinatário', 
+            'Órgão Interesse', 'UF', 'Município', 'Data 1 Resp', 'Data Resp Concl', 
+            'Área Responsável', 'Área Responsável 2', 'Campos', 'Canal'
+        ]
+
+        # O comando 'skiprows=4' pula o cabeçalho estragado do seu arquivo
+        df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_corretas, on_bad_lines='skip')
              
     except Exception as e:
-        # Se falhar com latin-1, tenta com utf-8 por desencargo
-        try:
-            df = pd.read_csv(arquivo, sep=";", encoding='utf-8-sig')
-        except:
-            st.error(f"Erro crítico ao ler '{arquivo}'. Verifique o arquivo.")
-            return None
+        st.error(f"Erro crítico ao ler '{arquivo}'. Verifique o arquivo no GitHub. Detalhes: {e}")
+        return None
 
 
     # --- PROCESSAMENTO DOS DADOS ---
