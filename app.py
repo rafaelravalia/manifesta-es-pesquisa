@@ -13,35 +13,37 @@ st.set_page_config(
 
 @st.cache_data
 def carregar_dados_pesquisa():
+    """
+    Carrega e processa os dados da pesquisa de satisfação (pesquisa.csv).
+    Usa busca flexível para encontrar colunas mesmo com erros de acento.
+    """
     try:
+        # Lendo com latin-1 e ignorando linhas com erro (quebras de linha no CSV)
         df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
-        
-        # Limpeza para ignorar erros de acento nos nomes das colunas
         df.columns = df.columns.str.strip()
-        
-        # Criamos uma busca flexível para a coluna de satisfação
-        coluna_satisfacao = None
-        for col in df.columns:
-            if "satisfeito" in col.lower():
-                coluna_satisfacao = col
-                break
-        
-        if coluna_satisfacao:
-            df["Satisfação_Limpa"] = df[coluna_satisfacao].str.strip()
 
-        # Busca flexível para a data
-        coluna_data = None
+        # --- Busca Flexível de Colunas para evitar KeyError ---
         for col in df.columns:
-            if "resposta" in col.lower() and "pesquisa" in col.lower():
-                coluna_data = col
-                break
-        
-        if coluna_data:
-            df[coluna_data] = pd.to_datetime(df[coluna_data], errors='coerce', dayfirst=True)
-            df["mês"] = df[coluna_data].dt.to_period('M')
+            nome_low = col.lower()
+            
+            # Identifica coluna de Tipo de Manifestação
+            if "tipo" in nome_low and "manifesta" in nome_low:
+                df.rename(columns={col: "Tipo_Manifestacao_Limpo"}, inplace=True)
+            
+            # Identifica coluna de Satisfação
+            if "satisfeito" in nome_low:
+                df.rename(columns={col: "Satisfacao_Limpa"}, inplace=True)
+            
+            # Identifica coluna de Data da Resposta
+            if "resposta" in nome_low and "pesquisa" in nome_low:
+                df.rename(columns={col: "Data_Pesquisa_Limpa"}, inplace=True)
+
+        # Processamento da Data da Pesquisa
+        if "Data_Pesquisa_Limpa" in df.columns:
+            df["Data_Pesquisa_Limpa"] = pd.to_datetime(df["Data_Pesquisa_Limpa"], errors='coerce', dayfirst=True)
+            df["mês"] = df["Data_Pesquisa_Limpa"].dt.to_period('M')
         else:
-            # Se não achar a data, criamos um mês fictício para não quebrar o filtro
-            df["mês"] = pd.Period('2025-04', freq='M') 
+            df["mês"] = None
         
         return df
     except Exception as e:
@@ -51,13 +53,12 @@ def carregar_dados_pesquisa():
 @st.cache_data
 def carregar_dados_manifestacoes():
     """
-    Carrega os dados gerais. Pula as 4 linhas bagunçadas do topo do arquivo da Ouvidoria.
+    Carrega os dados gerais pulando o cabeçalho quebrado do arquivo da ANVISA.
     """
-    # Nome exato do arquivo no seu GitHub
     arquivo = "ListaManifestacaoAtualizadaa.csv" 
     
     try:
-        # Definindo as colunas manualmente para ignorar o cabeçalho quebrado
+        # Títulos manuais para ignorar as 4 linhas sujas do topo
         colunas_corretas = [
             'Situação', 'NUP', 'Tipo', 'Registrado Por', 'Possui Denúncia', 
             'Assunto', 'Subassunto', 'Tag', 'Data', 'Data de Abertura', 
@@ -67,10 +68,8 @@ def carregar_dados_manifestacoes():
             'Área Responsável', 'Área Responsável 2', 'Campos', 'Canal'
         ]
 
-        # skiprows=4 pula a parte suja; on_bad_lines='skip' evita travar em textos longos
+        # skiprows=4 pula a parte corrompida; on_bad_lines='skip' evita travar em textos longos
         df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_corretas, on_bad_lines='skip')
-        
-        # Limpeza básica
         df.columns = df.columns.str.strip()
 
         if 'Data de Abertura' in df.columns:
@@ -80,7 +79,6 @@ def carregar_dados_manifestacoes():
             df["mês"] = None
 
         return df
-
     except Exception as e:
         st.error(f"Erro crítico ao ler '{arquivo}': {e}")
         return None
@@ -90,14 +88,13 @@ df_pesquisa = carregar_dados_pesquisa()
 df_manifestacoes = carregar_dados_manifestacoes()
 
 if df_pesquisa is None or df_manifestacoes is None:
-    st.error("Falha ao carregar os dados. Verifique os arquivos CSV no GitHub.")
     st.stop()
 
 # --- Filtros Laterais ---
 st.sidebar.title("Filtros do Painel")
 usar_data_invalida = st.sidebar.checkbox("Incluir manifestações sem data?", value=False)
 
-# Filtro de Meses (baseado nas Manifestações)
+# Filtro de Meses baseado no arquivo principal
 if "mês" in df_manifestacoes.columns and not df_manifestacoes["mês"].isnull().all():
     meses_disponiveis = sorted(df_manifestacoes["mês"].dropna().unique(), reverse=True)
     mapa_meses = {m.strftime('%B/%Y').capitalize(): m for m in meses_disponiveis}
@@ -110,7 +107,7 @@ if "mês" in df_manifestacoes.columns and not df_manifestacoes["mês"].isnull().
     
     periodos_finais = [mapa_meses[m] for m in selecao_meses]
     
-    # Aplicando o filtro
+    # Aplicação do Filtro
     df_manifest_filtrado = df_manifestacoes[
         (df_manifestacoes["mês"].isin(periodos_finais)) |
         (usar_data_invalida & df_manifestacoes["mês"].isna())
@@ -136,20 +133,28 @@ with tab1:
         
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            fig_tipo = px.pie(df_pesq_filtrado, names='Tipo de Manifestação', title='Tipo de Manifestação')
-            st.plotly_chart(fig_tipo, use_container_width=True)
+            # Gráfico de Tipo usando a coluna renomeada na busca flexível
+            c_tipo = "Tipo_Manifestacao_Limpo"
+            if c_tipo in df_pesq_filtrado.columns:
+                fig_tipo = px.pie(df_pesq_filtrado, names=c_tipo, title='Tipo de Manifestação')
+                st.plotly_chart(fig_tipo, use_container_width=True)
+            else:
+                st.warning("Coluna 'Tipo de Manifestação' não encontrada.")
         
         with col_p2:
-            col_sat = "Você está satisfeito(a) com o atendimento prestado?"
-            if col_sat in df_pesq_filtrado.columns:
-                fig_sat = px.bar(df_pesq_filtrado[col_sat].value_counts().reset_index(), 
-                                 x='count', y=col_sat, orientation='h', title='Nível de Satisfação')
+            # Gráfico de Satisfação usando a coluna renomeada
+            c_sat = "Satisfacao_Limpa"
+            if c_sat in df_pesq_filtrado.columns:
+                dados_sat = df_pesq_filtrado[c_sat].value_counts().reset_index()
+                fig_sat = px.bar(dados_sat, x='count', y=c_sat, orientation='h', title='Nível de Satisfação')
                 st.plotly_chart(fig_sat, use_container_width=True)
+            else:
+                st.warning("Coluna de Satisfação não encontrada.")
     else:
-        st.info("Sem dados de pesquisa para o período.")
+        st.info("Sem dados de pesquisa para o período selecionado.")
 
 with tab2:
-    st.header("Painel Geral")
+    st.header("Painel de Manifestações Gerais")
     st.metric("📩 Total de Manifestações", len(df_manifest_filtrado))
     
     col_m1, col_m2 = st.columns(2)
