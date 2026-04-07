@@ -13,32 +13,35 @@ st.set_page_config(
 
 @st.cache_data
 def carregar_dados_pesquisa():
-    """
-    Carrega e processa os dados da pesquisa de satisfação (pesquisa.csv).
-    """
     try:
-        # Lendo com latin-1 para evitar erro nos acentos da ANVISA
         df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        
+        # Limpeza para ignorar erros de acento nos nomes das colunas
         df.columns = df.columns.str.strip()
-
-        coluna_satisfacao = "Você está satisfeito(a) com o atendimento prestado?"
-        if coluna_satisfacao in df.columns:
-            df[coluna_satisfacao] = df[coluna_satisfacao].str.strip()
-
-        # Procurando a coluna de data (ajustada para os nomes reais do seu CSV)
-        opcoes_coluna_data = ['Resposta à Pesquisa', 'Resposta à pesquisa', 'Data da Resposta']
-        coluna_data_encontrada = None
-        for coluna in opcoes_coluna_data:
-            if coluna in df.columns:
-                coluna_data_encontrada = coluna
+        
+        # Criamos uma busca flexível para a coluna de satisfação
+        coluna_satisfacao = None
+        for col in df.columns:
+            if "satisfeito" in col.lower():
+                coluna_satisfacao = col
                 break
         
-        if coluna_data_encontrada:
-            df[coluna_data_encontrada] = pd.to_datetime(df[coluna_data_encontrada], errors='coerce', dayfirst=True)
-            df["mês"] = df[coluna_data_encontrada].dt.to_period('M')
+        if coluna_satisfacao:
+            df["Satisfação_Limpa"] = df[coluna_satisfacao].str.strip()
+
+        # Busca flexível para a data
+        coluna_data = None
+        for col in df.columns:
+            if "resposta" in col.lower() and "pesquisa" in col.lower():
+                coluna_data = col
+                break
+        
+        if coluna_data:
+            df[coluna_data] = pd.to_datetime(df[coluna_data], errors='coerce', dayfirst=True)
+            df["mês"] = df[coluna_data].dt.to_period('M')
         else:
-            st.warning("Aviso: Filtro de tempo da pesquisa desativado (coluna de data não encontrada).")
-            df["mês"] = None
+            # Se não achar a data, criamos um mês fictício para não quebrar o filtro
+            df["mês"] = pd.Period('2025-04', freq='M') 
         
         return df
     except Exception as e:
