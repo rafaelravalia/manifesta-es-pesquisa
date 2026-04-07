@@ -59,15 +59,25 @@ def carregar_dados_manifestacoes():
     arquivo = "ListaManifestacaoAtualizadaa.csv"
     df = None
     
-    # --- TENTATIVA DE LEITURA ROBUSTA ---
+# --- TENTATIVA DE LEITURA ROBUSTA ---
     try:
         # 1. Tenta ler com ponto e vírgula (padrão Excel PT-BR)
-df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
+        df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
         
-# Verifica se leu tudo em uma única coluna (sinal de separador errado)
-if len(df.columns) <= 1:
-     # Se deu errado, força a leitura com vírgula
-     df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
+        # Verifica se leu tudo em uma única coluna
+        if len(df.columns) <= 1:
+            # Se deu errado, força a leitura com vírgula
+            df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
+             
+    except Exception as e:
+        # Caso a primeira tentativa falhe completamente
+        try:
+            df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
+        except Exception as e:
+            st.error(f"Erro crítico ao ler '{arquivo}'. Detalhes: {e}")
+            return None
+
+    # --- PROCESSAMENTO DOS DADOS ---
              
     except:
         # 2. Se a primeira tentativa falhar (ParserError), tenta direto com vírgula
