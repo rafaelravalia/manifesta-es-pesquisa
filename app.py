@@ -51,9 +51,9 @@ def carregar_dados_manifestacoes():
     arquivo = "ListaManifestacaoAtualizadaa.csv"
     df = None
     
-# --- TENTATIVA DE LEITURA ROBUSTA (VERSÃO PARA PULAR LINHAS QUEBRADAS) ---
+# --- TENTATIVA DE LEITURA ROBUSTA ---
     try:
-        # Definimos os nomes das colunas manualmente para evitar erros de leitura no topo
+        # 1. Definimos os nomes das colunas primeiro
         colunas_corretas = [
             'Situação', 'NUP', 'Tipo', 'Registrado Por', 'Possui Denúncia', 
             'Assunto', 'Subassunto', 'Tag', 'Data', 'Data de Abertura', 
@@ -63,11 +63,11 @@ def carregar_dados_manifestacoes():
             'Área Responsável', 'Área Responsável 2', 'Campos', 'Canal'
         ]
 
-        # O comando 'skiprows=4' pula o cabeçalho estragado do seu arquivo
+        # 2. Agora lemos o arquivo pulando as 4 linhas e usando esses nomes
         df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_corretas, on_bad_lines='skip')
              
     except Exception as e:
-        st.error(f"Erro crítico ao ler '{arquivo}'. Verifique o arquivo no GitHub. Detalhes: {e}")
+        st.error(f"Erro crítico ao ler '{arquivo}'. Detalhes: {e}")
         return None
 
 
