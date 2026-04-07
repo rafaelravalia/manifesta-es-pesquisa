@@ -19,7 +19,7 @@ def carregar_dados_pesquisa():
     """
     try:
         # Usando utf-8 que é mais padrão e robusto para caracteres especiais.
-        df = pd.read_csv("pesquisa.csv", sep=";")
+        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1")
         df.columns = df.columns.str.strip()
 
         coluna_satisfacao = "Você está satisfeito(a) com o atendimento prestado?"
@@ -62,12 +62,12 @@ def carregar_dados_manifestacoes():
     # --- TENTATIVA DE LEITURA ROBUSTA ---
     try:
         # 1. Tenta ler com ponto e vírgula (padrão Excel PT-BR)
-        df = pd.read_csv(arquivo, sep=";", encoding='utf-8')
+df = pd.read_csv(arquivo, sep=";", encoding='latin-1')
         
-        # Verifica se leu tudo em uma única coluna (sinal de separador errado)
-        if len(df.columns) <= 1:
-             # Se deu errado, força a leitura com vírgula
-             df = pd.read_csv(arquivo, sep=",", encoding='utf-8')
+# Verifica se leu tudo em uma única coluna (sinal de separador errado)
+if len(df.columns) <= 1:
+     # Se deu errado, força a leitura com vírgula
+     df = pd.read_csv(arquivo, sep=",", encoding='latin-1')
              
     except:
         # 2. Se a primeira tentativa falhar (ParserError), tenta direto com vírgula
