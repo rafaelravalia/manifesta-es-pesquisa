@@ -53,7 +53,6 @@ def carregar_dados_manifestacoes():
     
 # --- TENTATIVA DE LEITURA ROBUSTA ---
     try:
-        # 1. Definimos os nomes das colunas primeiro
         colunas_corretas = [
             'Situação', 'NUP', 'Tipo', 'Registrado Por', 'Possui Denúncia', 
             'Assunto', 'Subassunto', 'Tag', 'Data', 'Data de Abertura', 
@@ -63,43 +62,18 @@ def carregar_dados_manifestacoes():
             'Área Responsável', 'Área Responsável 2', 'Campos', 'Canal'
         ]
 
-        # 2. Agora lemos o arquivo pulando as 4 linhas e usando esses nomes
+        # Lemos pulando as 4 linhas bagunçadas do topo e usando os nomes acima
         df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_corretas, on_bad_lines='skip')
              
     except Exception as e:
         st.error(f"Erro crítico ao ler '{arquivo}'. Detalhes: {e}")
         return None
 
-
     # --- PROCESSAMENTO DOS DADOS ---
     try:
-        # Normaliza colunas
-        df.columns = (
-            df.columns
-            .str.strip()       # remove espaços antes/depois
-            .str.replace("", "", regex=False)  # remove caracteres ocultos (BOM)
-            .str.replace("\uFEFF", "", regex=False)  # remove BOM explícito
-        )
-
-        # Renomeia a coluna problemática, se existir, para um nome padrão.
-        for col in df.columns:
-            if "Área Responsável" in col:
-                df.rename(columns={col: "Área Responsável"}, inplace=True)
-                break
-
-        if 'Data de Abertura' in df.columns:
-            df['Data de Abertura'] = pd.to_datetime(df['Data de Abertura'], errors='coerce', dayfirst=True)
-            df["mês"] = df['Data de Abertura'].dt.to_period('M')
-        else:
-            st.warning("Coluna 'Data de Abertura' não encontrada no arquivo de manifestações.")
-            df["mês"] = None
-
-        return df
-
-    except Exception as e:
-        st.error(f"Erro ao processar os dados de '{arquivo}': {e}")
-        return None
-
+        # Remove espaços extras e limpa nomes de colunas
+        df.columns = df.columns.str.strip()
+        
 # --- Carregamento dos Dados ---
 df_pesquisa = carregar_dados_pesquisa()
 df_manifestacoes = carregar_dados_manifestacoes()
