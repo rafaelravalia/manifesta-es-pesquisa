@@ -14,42 +14,34 @@ st.set_page_config(
 
 @st.cache_data
 def carregar_dados_pesquisa():
-    """
-    Carrega e processa os dados da pesquisa de satisfação (pesquisa.csv).
-    """
     try:
-        # Usando utf-8 que é mais padrão e robusto para caracteres especiais.
-        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1")
-        df.columns = df.columns.str.strip()
-
-        coluna_satisfacao = "Você está satisfeito(a) com o atendimento prestado?"
-        if coluna_satisfacao in df.columns:
-            df[coluna_satisfacao] = df[coluna_satisfacao].str.replace('?? ', '', regex=False).str.strip()
-
+        # Usamos 'latin-1' e on_bad_lines='skip' para não travar em linhas com erro
+        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        
+        # Limpeza profunda nos nomes das colunas (remove espaços e caracteres invisíveis)
+        df.columns = df.columns.str.strip().str.replace('Ã ', 'à')
+        
+        # Lista exata das colunas que vimos no seu arquivo
         opcoes_coluna_data = ['Resposta à Pesquisa', 'Resposta à pesquisa']
+        
         coluna_data_encontrada = None
-        for coluna in opcoes_coluna_data:
-            if coluna in df.columns:
-                coluna_data_encontrada = coluna
+        for col in df.columns:
+            if any(op in col for op in opcoes_coluna_data):
+                coluna_data_encontrada = col
                 break
         
-        # CORREÇÃO: Garante que a coluna 'mês' seja sempre criada.
         if coluna_data_encontrada:
             df[coluna_data_encontrada] = pd.to_datetime(df[coluna_data_encontrada], errors='coerce', dayfirst=True)
             df["mês"] = df[coluna_data_encontrada].dt.to_period('M')
         else:
-            # Se não encontrar coluna de data, cria a coluna 'mês' com valores nulos.
-            st.warning("Nenhuma coluna de data encontrada no arquivo 'pesquisa.csv'. O filtro de tempo não será aplicado a este dataset.")
+            st.warning(f"Colunas lidas: {list(df.columns[:5])}... Nenhuma data achada.")
             df["mês"] = None
         
         return df
-    except FileNotFoundError:
-        st.error("Arquivo 'pesquisa.csv' não encontrado.")
-        return None
     except Exception as e:
-        st.error(f"Erro ao carregar 'pesquisa.csv': {e}")
+        st.error(f"Erro no pesquisa.csv: {e}")
         return None
-
+        
 @st.cache_data
 def carregar_dados_manifestacoes():
     """
