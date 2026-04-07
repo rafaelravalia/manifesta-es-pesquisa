@@ -14,27 +14,22 @@ st.set_page_config(
 @st.cache_data
 def carregar_dados_pesquisa():
     try:
-        # Lemos com latin-1
-        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        # Definimos os nomes das colunas manualmente para evitar erro de acento/caracteres estranhos
+        colunas_pesquisa = [
+            'Tipo_Manifestacao', 'Assunto', 'Subassunto', 'Data_Resposta_1', 'Data_Resposta_2',
+            'Resp_Manifestacao_1', 'Resp_Manifestacao_2', 'Atendida', 'Facil_Compreender',
+            'Satisfacao', 'Numero_Manifestacao', 'Teor', 'Parecer', 'Comentario', 'Reabertura', 'Area'
+        ]
         
-        # ESSA LINHA É A CURA: Remove caracteres estranhos dos nomes das colunas
-        df.columns = df.columns.str.encode('latin-1').str.decode('utf-8', errors='ignore').str.strip()
+        # skiprows=1 pula a linha de títulos original que está vindo "suja"
+        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", skiprows=1, names=colunas_pesquisa, on_bad_lines='skip')
         
-        # --- Busca Flexível de Colunas ---
-        for col in df.columns:
-            nome_low = col.lower()
-            if "tipo" in nome_low and "manifesta" in nome_low:
-                df.rename(columns={col: "Tipo_Manifestacao_Limpo"}, inplace=True)
-            if "satisfeito" in nome_low:
-                df.rename(columns={col: "Satisfacao_Limpa"}, inplace=True)
-            if "resposta" in nome_low and "pesquisa" in nome_low:
-                df.rename(columns={col: "Data_Pesquisa_Limpa"}, inplace=True)
-
-        if "Data_Pesquisa_Limpa" in df.columns:
-            df["Data_Pesquisa_Limpa"] = pd.to_datetime(df["Data_Pesquisa_Limpa"], errors='coerce', dayfirst=True)
-            df["mês"] = df["Data_Pesquisa_Limpa"].dt.to_period('M')
-        else:
-            df["mês"] = None
+        # Limpeza de dados
+        df['Satisfacao'] = df['Satisfacao'].astype(str).str.strip()
+        
+        # Processamento da Data (usando a primeira coluna de data disponível)
+        df['Data_Resposta_1'] = pd.to_datetime(df['Data_Resposta_1'], errors='coerce', dayfirst=True)
+        df["mês"] = df['Data_Resposta_1'].dt.to_period('M')
         
         return df
     except Exception as e:
@@ -45,7 +40,7 @@ def carregar_dados_pesquisa():
 def carregar_dados_manifestacoes():
     arquivo = "ListaManifestacaoAtualizadaa.csv" 
     try:
-        colunas_corretas = [
+        colunas_gerais = [
             'Situação', 'NUP', 'Tipo', 'Registrado Por', 'Possui Denúncia', 
             'Assunto', 'Subassunto', 'Tag', 'Data', 'Data de Abertura', 
             'Prazo', 'Data Encaminhamento', 'Qtde', 'Esfera', 'Serviço Federal', 
@@ -53,14 +48,12 @@ def carregar_dados_manifestacoes():
             'Órgão Interesse', 'UF', 'Município', 'Data 1 Resp', 'Data Resp Concl', 
             'Área Responsável', 'Área Responsável 2', 'Campos', 'Canal'
         ]
-        df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_corretas, on_bad_lines='skip')
-        df.columns = df.columns.str.strip()
-
-        if 'Data de Abertura' in df.columns:
-            df['Data de Abertura'] = pd.to_datetime(df['Data de Abertura'], errors='coerce', dayfirst=True)
-            df["mês"] = df['Data de Abertura'].dt.to_period('M')
-        else:
-            df["mês"] = None
+        # skiprows=4 pula o topo bagunçado do arquivo da Ouvidoria
+        df = pd.read_csv(arquivo, sep=";", encoding='latin-1', skiprows=4, names=colunas_gerais, on_bad_lines='skip')
+        
+        df['Data de Abertura'] = pd.to_datetime(df['Data de Abertura'], errors='coerce', dayfirst=True)
+        df["mês"] = df['Data de Abertura'].dt.to_period('M')
+        
         return df
     except Exception as e:
         st.error(f"Erro crítico ao ler '{arquivo}': {e}")
@@ -95,23 +88,21 @@ with tab1:
     if not df_pesq_filtrado.empty:
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            # Gráfico de Pizza Seguro
-            c_tipo = "Tipo_Manifestacao_Limpo" if "Tipo_Manifestacao_Limpo" in df_pesq_filtrado.columns else None
-            if c_tipo:
-                fig_tipo = px.pie(df_pesq_filtrado, names=c_tipo, title='Tipo de Manifestação')
-                st.plotly_chart(fig_tipo, use_container_width=True)
+            # Gráfico de Pizza usando o nome de coluna que nós criamos
+            fig_tipo = px.pie(df_pesq_filtrado, names='Tipo_Manifestacao', title='Tipo de Manifestação')
+            st.plotly_chart(fig_tipo, use_container_width=True)
+            
         with col_p2:
-            c_sat = "Satisfacao_Limpa" if "Satisfacao_Limpa" in df_pesq_filtrado.columns else None
-            if c_sat:
-                dados_sat = df_pesq_filtrado[c_sat].value_counts().reset_index()
-                dados_sat.columns = [c_sat, 'quantidade']
-                fig_sat = px.bar(dados_sat, x='quantidade', y=c_sat, orientation='h', title='Nível de Satisfação')
-                st.plotly_chart(fig_sat, use_container_width=True)
+            # Gráfico de Barras de Satisfação
+            dados_sat = df_pesq_filtrado['Satisfacao'].value_counts().reset_index()
+            dados_sat.columns = ['Satisfacao', 'quantidade']
+            fig_sat = px.bar(dados_sat, x='quantidade', y='Satisfacao', orientation='h', title='Nível de Satisfação')
+            st.plotly_chart(fig_sat, use_container_width=True)
     else:
         st.info("Sem dados para o período.")
 
 with tab2:
-    st.header("Painel Geral")
+    st.header("Painel Geral de Manifestações")
     st.metric("📩 Total de Manifestações", len(df_manifest_filtrado))
     col_m1, col_m2 = st.columns(2)
     with col_m1:
