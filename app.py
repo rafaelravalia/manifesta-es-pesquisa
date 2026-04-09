@@ -18,7 +18,7 @@ def tratar_texto(df):
 def carregar_dados_pesquisa():
     try:
         # Pesquisa da ANVISA geralmente não tem as linhas de cabeçalho administrativo
-        df = pd.read_csv("pesquisa (2).csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
         df.columns = df.columns.str.strip().str.replace('\n', ' ')
         df = df.loc[:, ~df.columns.duplicated()] # Remove colunas com nomes idênticos
         
