@@ -15,30 +15,44 @@ def corrigir_texto(df):
 @st.cache_data
 def carregar_dados_completo(nome_arquivo, tipo_base):
     try:
+        # Tenta ler do topo primeiro
         df = pd.read_csv(nome_arquivo, sep=";", encoding="latin-1", on_bad_lines='skip')
         if df.shape[1] < 5:
             df = pd.read_csv(nome_arquivo, sep=";", encoding="latin-1", skiprows=4, on_bad_lines='skip')
         
+        # 1. Limpa nomes de colunas originais
         df.columns = df.columns.str.strip().str.encode('latin-1').str.decode('utf-8', 'ignore')
-        df = df.loc[:, ~df.columns.duplicated()]
         
+        # 2. Mapeamento que evita nomes duplicados
         mapeamento = {}
+        ja_atribuidos = set() # Trava para não repetir nomes de colunas
+
         for col in df.columns:
             c = col.lower()
-            if "tipo" in c and "manifesta" in c: mapeamento[col] = "Tipo"
-            elif "satisfeito" in c: mapeamento[col] = "Satisfacao"
-            elif "assunto" in c and "sub" not in c: mapeamento[col] = "Assunto"
-            elif "situa" in c: mapeamento[col] = "Situacao"
-            elif "data" in c or "abertura" in c:
-                if "Data" not in mapeamento.values(): mapeamento[col] = "Data"
+            novo_nome = None
+            
+            if "tipo" in c and "manifesta" in c: novo_nome = "Tipo"
+            elif "satisfeito" in c: novo_nome = "Satisfacao"
+            elif "assunto" in c and "sub" not in c: novo_nome = "Assunto"
+            elif "situa" in c: novo_nome = "Situacao"
+            elif "data" in c or "abertura" in c: novo_nome = "Data"
             
             # Diferenciação de Áreas
             if tipo_base == "pesquisa" and (c == "área" or c == "area"):
-                mapeamento[col] = "Area_Pesquisa"
+                novo_nome = "Area_Pesquisa"
             elif tipo_base == "geral" and ("área responsável" in c or "area responsavel" in c):
-                mapeamento[col] = "Unidade_Responsavel"
+                novo_nome = "Unidade_Responsavel"
+
+            # Só renomeia se o nome de destino ainda não foi usado
+            if novo_nome and novo_nome not in ja_atribuidos:
+                mapeamento[col] = novo_nome
+                ja_atribuidos.add(novo_nome)
 
         df = df.rename(columns=mapeamento)
+        
+        # Remove qualquer coluna que tenha sobrado com nome duplicado por acidente
+        df = df.loc[:, ~df.columns.duplicated()]
+        
         df = corrigir_texto(df)
         
         if "Data" in df.columns:
@@ -46,7 +60,9 @@ def carregar_dados_completo(nome_arquivo, tipo_base):
             df = df.dropna(subset=["Data"])
             df["mês"] = df["Data"].dt.to_period('M')
         return df
-    except: return None
+    except Exception as e:
+        st.error(f"Erro ao processar {nome_arquivo}: {e}")
+        return None
 
 # --- Execução ---
 df_p = carregar_dados_completo("pesquisa.csv", "pesquisa")
