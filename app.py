@@ -41,7 +41,7 @@ def renomear_colunas_sem_duplicar(df, mapa_desejado):
 @st.cache_data
 def carregar_pesquisa():
     try:
-        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        df = pd.read_csv("pesquisa (2).csv", sep=";", encoding="latin-1", on_bad_lines='skip')
         mapa = {
             "satisfeito": "Satisfacao",
             "tipo": "Tipo",
