@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import locale
 
 # --- Configurações Iniciais ---
 st.set_page_config(
@@ -10,259 +9,111 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Funções de Carregamento de Dados ---
+# --- Função para Corrigir Textos (Acentos e Ç) ---
+def corrigir_texto(df):
+    for col in df.select_dtypes(include=['object']).columns:
+        df[col] = df[col].apply(lambda x: x.encode('latin-1').decode('utf-8', 'ignore') if isinstance(x, str) else x)
+    return df
 
+# --- Função de Carregamento Inteligente ---
 @st.cache_data
-def carregar_dados_pesquisa():
-    """
-    Carrega e processa os dados da pesquisa de satisfação (pesquisa.csv).
-    """
+def carregar_dados_ouvidoria(nome_arquivo):
     try:
-        # Usando utf-8 que é mais padrão e robusto para caracteres especiais.
-        df = pd.read_csv("pesquisa.csv", sep=";")
-        df.columns = df.columns.str.strip()
-
-        coluna_satisfacao = "Você está satisfeito(a) com o atendimento prestado?"
-        if coluna_satisfacao in df.columns:
-            df[coluna_satisfacao] = df[coluna_satisfacao].str.replace('?? ', '', regex=False).str.strip()
-
-        opcoes_coluna_data = ['Resposta à Pesquisa', 'Resposta à pesquisa']
-        coluna_data_encontrada = None
-        for coluna in opcoes_coluna_data:
-            if coluna in df.columns:
-                coluna_data_encontrada = coluna
-                break
+        # Lemos o arquivo com separador ; e encoding latino
+        df = pd.read_csv(nome_arquivo, sep=";", encoding="latin-1", on_bad_lines='skip')
         
-        # CORREÇÃO: Garante que a coluna 'mês' seja sempre criada.
-        if coluna_data_encontrada:
-            df[coluna_data_encontrada] = pd.to_datetime(df[coluna_data_encontrada], errors='coerce', dayfirst=True)
-            df["mês"] = df[coluna_data_encontrada].dt.to_period('M')
-        else:
-            # Se não encontrar coluna de data, cria a coluna 'mês' com valores nulos.
-            st.warning("Nenhuma coluna de data encontrada no arquivo 'pesquisa.csv'. O filtro de tempo não será aplicado a este dataset.")
-            df["mês"] = None
+        # Limpeza nos nomes das colunas
+        df.columns = df.columns.str.strip().str.encode('latin-1').str.decode('utf-8', 'ignore')
         
-        return df
-    except FileNotFoundError:
-        st.error("Arquivo 'pesquisa.csv' não encontrado.")
-        return None
-    except Exception as e:
-        st.error(f"Erro ao carregar 'pesquisa.csv': {e}")
-        return None
-
-@st.cache_data
-def carregar_dados_manifestacoes():
-    """
-    Carrega e processa os dados gerais de manifestações.
-    Tenta ler com ';' e, se falhar ou ler errado, tenta com ','.
-    """
-    arquivo = "ListaManifestacaoAtualizadaa.csv"
-    df = None
-    
-    # --- TENTATIVA DE LEITURA ROBUSTA ---
-    try:
-        # 1. Tenta ler com ponto e vírgula (padrão Excel PT-BR)
-        df = pd.read_csv(arquivo, sep=";", encoding='utf-8')
-        
-        # Verifica se leu tudo em uma única coluna (sinal de separador errado)
-        if len(df.columns) <= 1:
-             # Se deu errado, força a leitura com vírgula
-             df = pd.read_csv(arquivo, sep=",", encoding='utf-8')
-             
-    except:
-        # 2. Se a primeira tentativa falhar (ParserError), tenta direto com vírgula
-        try:
-            df = pd.read_csv(arquivo, sep=",", encoding='utf-8')
-        except Exception as e:
-            st.error(f"Erro crítico ao ler '{arquivo}'. Verifique se o arquivo é um CSV válido. Detalhes: {e}")
-            return None
-
-    # --- PROCESSAMENTO DOS DADOS ---
-    try:
-        # Normaliza colunas
-        df.columns = (
-            df.columns
-            .str.strip()       # remove espaços antes/depois
-            .str.replace("", "", regex=False)  # remove caracteres ocultos (BOM)
-            .str.replace("\uFEFF", "", regex=False)  # remove BOM explícito
-        )
-
-        # Renomeia a coluna problemática, se existir, para um nome padrão.
+        # Mapeamento dinâmico (Procura a coluna pelo que ela parece ser)
+        novas_colunas = {}
         for col in df.columns:
-            if "Área Responsável" in col:
-                df.rename(columns={col: "Área Responsável"}, inplace=True)
-                break
-
-        if 'Data de Abertura' in df.columns:
-            df['Data de Abertura'] = pd.to_datetime(df['Data de Abertura'], errors='coerce', dayfirst=True)
-            df["mês"] = df['Data de Abertura'].dt.to_period('M')
-        else:
-            st.warning("Coluna 'Data de Abertura' não encontrada no arquivo de manifestações.")
-            df["mês"] = None
-
+            c = col.lower()
+            if "tipo" in c and "manifesta" in c: novas_colunas[col] = "Tipo"
+            elif "satisfeito" in c: novas_colunas[col] = "Satisfacao"
+            elif "assunto" in c and "sub" not in c: novas_colunas[col] = "Assunto"
+            elif "situa" in c: novas_colunas[col] = "Situacao"
+            elif "área" in c or "unidade" in c or "setor" in c: novas_colunas[col] = "Area"
+            elif "data" in c or "abertura" in c: novas_colunas[col] = "Data"
+        
+        df = df.rename(columns=novas_colunas)
+        df = corrigir_texto(df)
+        
+        if "Data" in df.columns:
+            df["Data"] = pd.to_datetime(df["Data"], errors='coerce', dayfirst=True)
+            df["mês"] = df["Data"].dt.to_period('M')
         return df
-
     except Exception as e:
-        st.error(f"Erro ao processar os dados de '{arquivo}': {e}")
+        st.error(f"Erro ao carregar {nome_arquivo}: {e}")
         return None
 
-# --- Carregamento dos Dados ---
-df_pesquisa = carregar_dados_pesquisa()
-df_manifestacoes = carregar_dados_manifestacoes()
+# --- Execução ---
+df_p = carregar_dados_ouvidoria("pesquisa.csv")
+# O código tenta o nome com "a" extra, se não achar, tenta o normal
+df_m = carregar_dados_ouvidoria("ListaManifestacaoAtualizadaa.csv") 
 
-if df_pesquisa is None or df_manifestacoes is None:
+if df_p is None or df_m is None:
+    st.info("Certifique-se de que os arquivos 'pesquisa.csv' e 'ListaManifestacaoAtualizadaa.csv' estão no seu GitHub.")
     st.stop()
 
-# --- Filtro de Tempo ---
-st.sidebar.title("Filtro de Tempo")
-usar_data_invalida = st.sidebar.checkbox("Incluir manifestações sem data?", value=False)
-
-# Verifica se a coluna de mês existe e não está completamente vazia
-if "mês" in df_manifestacoes.columns and not df_manifestacoes["mês"].isnull().all():
+# --- Filtros ---
+st.sidebar.title("🗓️ Filtros")
+if "mês" in df_m.columns:
+    meses_disponiveis = sorted(df_m["mês"].dropna().unique(), reverse=True)
+    mapa_meses = {m.strftime('%B/%Y'): m for m in meses_disponiveis}
+    selecao = st.sidebar.multiselect("Selecione o período:", options=list(mapa_meses.keys()), default=list(mapa_meses.keys())[:3])
+    periodos = [mapa_meses[s] for s in selecao]
     
-    # 1. Pega os períodos únicos e válidos e os ordena
-    meses_periodo_unicos = sorted(df_manifestacoes["mês"].dropna().unique(), reverse=True)
-    
-    # 2. Cria um dicionário para mapear o texto de exibição
-    mapa_mes_display_para_periodo = {
-        periodo.strftime('%B/%Y').capitalize(): periodo 
-        for periodo in meses_periodo_unicos
-    }
-    
-    # 3. Pega as chaves do dicionário para usar como opções
-    opcoes_meses_display = list(mapa_mes_display_para_periodo.keys())
-
-    # 4. Exibe o multiselect para o usuário
-    meses_selecionados_display = st.sidebar.multiselect(
-        "Selecione o(s) mês(es):",
-        options=opcoes_meses_display,
-        default=opcoes_meses_display  # Por padrão, todos vêm selecionados
-    )
-
-    # 5. Usa o dicionário para converter os textos selecionados de volta para os objetos de período
-    meses_selecionados_periodo = [
-        mapa_mes_display_para_periodo[display] for display in meses_selecionados_display
-    ]
-
-    # 6. Filtra os DataFrames usando a lista de períodos
-    df_manifestacoes_filtrado = df_manifestacoes[
-        (df_manifestacoes["mês"].isin(meses_selecionados_periodo)) |
-        (usar_data_invalida & df_manifestacoes["mês"].isna())
-    ]
-
-    # Filtra o dataframe de pesquisa apenas se ele tiver a coluna 'mês' válida
-    if "mês" in df_pesquisa.columns and not df_pesquisa["mês"].isnull().all():
-        df_pesquisa_filtrado = df_pesquisa[
-            df_pesquisa["mês"].isin(meses_selecionados_periodo)
-        ]
-    else:
-        # Se não houver mês, não filtra
-        df_pesquisa_filtrado = df_pesquisa
+    df_m_filt = df_m[df_m["mês"].isin(periodos)]
+    df_p_filt = df_p[df_p["mês"].isin(periodos)] if "mês" in df_p.columns else df_p
 else:
-    st.sidebar.info("Filtro de tempo não disponível.")
-    df_manifestacoes_filtrado = df_manifestacoes
-    df_pesquisa_filtrado = df_pesquisa
+    df_m_filt, df_p_filt = df_m, df_p
 
-# --- Layout Principal ---
+# --- Dashboard Layout ---
 st.title("📊 Dashboard Ouvidoria ANVISA")
 
-tab1, tab2 = st.tabs(["Análise da Pesquisa de Satisfação", "Painel de Manifestações Gerais"])
+tab1, tab2 = st.tabs(["🎯 Pesquisa de Satisfação", "📂 Manifestações Gerais"])
 
-# --- Aba 1 ---
 with tab1:
     st.header("Análise da Pesquisa de Satisfação")
-    if not df_pesquisa_filtrado.empty:
-        st.metric("Total de Respostas no Período", f"{len(df_pesquisa_filtrado):,}".replace(",", "."))
-        st.markdown("---")
-
-        st.subheader("Classificação por Tipo de Manifestação")
-        tipo = df_pesquisa_filtrado["Tipo de Manifestação"].value_counts().reset_index()
-        tipo.columns = ['Tipo', 'Quantidade']
-        fig_pie_tipo = px.pie(tipo, values='Quantidade', names='Tipo', title='Proporção por Tipo de Manifestação', hole=.3)
-        st.plotly_chart(fig_pie_tipo, use_container_width=True)
-
-        st.subheader("Avaliação do Atendimento")
-        col_pesquisa1, col_pesquisa2 = st.columns(2)
-
-        with col_pesquisa1:
-            st.markdown("##### A sua demanda foi atendida?")
-            avaliacao = df_pesquisa_filtrado["A sua demanda foi atendida?"].value_counts().reset_index()
-            avaliacao.columns = ['Resposta', 'Quantidade']
-            fig_avaliacao = px.bar(avaliacao, x='Quantidade', y='Resposta', color='Resposta', text='Quantidade')
-            fig_avaliacao.update_layout(showlegend=False)
-            st.plotly_chart(fig_avaliacao, use_container_width=True)
-
-        with col_pesquisa2:
-            st.markdown("##### Satisfação com o atendimento prestado")
-            satisfacao = df_pesquisa_filtrado["Você está satisfeito(a) com o atendimento prestado?"].value_counts().reset_index()
-            satisfacao.columns = ['Satisfação', 'Quantidade']
-            fig_satisfacao = px.bar(satisfacao, x='Quantidade', y='Satisfação', color='Satisfação', text_auto=True)
-            fig_satisfacao.update_layout(showlegend=False, yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_satisfacao, use_container_width=True)
-
-        st.subheader("Distribuição de Respostas por Área")
-        if "Área" in df_pesquisa_filtrado.columns:
-            respostas_por_area = df_pesquisa_filtrado["Área"].value_counts().reset_index()
-            respostas_por_area.columns = ['Área', 'Quantidade']
-            fig_respostas_area = px.bar(respostas_por_area, x='Área', y='Quantidade', text_auto=True, color='Área')
-            fig_respostas_area.update_layout(showlegend=False, xaxis_tickangle=-45)
-            st.plotly_chart(fig_respostas_area, use_container_width=True)
-        else:
-            st.warning("Coluna 'Área' não encontrada na pesquisa.")
-    else:
-        st.info("Nenhum dado de pesquisa encontrado para o período selecionado.")
+    st.metric("Total de Respostas", len(df_p_filt))
     
-# --- Aba 2 ---
+    col1, col2 = st.columns(2)
+    with col1:
+        if "Tipo" in df_p_filt.columns:
+            st.plotly_chart(px.pie(df_p_filt, names='Tipo', title="Tipo de Manifestação", hole=0.3), use_container_width=True)
+    with col2:
+        if "Satisfacao" in df_p_filt.columns:
+            sat = df_p_filt['Satisfacao'].value_counts().reset_index()
+            sat.columns = ['Status', 'Total']
+            st.plotly_chart(px.bar(sat, x='Total', y='Status', orientation='h', title="Nível de Satisfação", color='Status'), use_container_width=True)
+
+    if "Area" in df_p_filt.columns:
+        st.divider()
+        st.subheader("Distribuição por Área Técnica")
+        areas_p = df_p_filt['Area'].value_counts().reset_index()
+        areas_p.columns = ['Área', 'Qtd']
+        st.plotly_chart(px.bar(areas_p, x='Área', y='Qtd', text_auto=True), use_container_width=True)
+
 with tab2:
     st.header("Painel de Manifestações Gerais")
-    st.metric("📩 Total de Manifestações", f"{len(df_manifestacoes_filtrado):,}".replace(",", "."))
+    st.metric("📩 Total de Manifestações", len(df_m_filt))
+    
+    colA, colB = st.columns(2)
+    with colA:
+        if "Assunto" in df_m_filt.columns:
+            top = df_m_filt['Assunto'].value_counts().nlargest(10).reset_index()
+            top.columns = ['Assunto', 'Qtd']
+            st.plotly_chart(px.bar(top, x='Qtd', y='Assunto', orientation='h', title="Top 10 Assuntos"), use_container_width=True)
+    with colB:
+        if "Situacao" in df_m_filt.columns:
+            st.plotly_chart(px.pie(df_m_filt, names='Situacao', title="Situação das Demandas"), use_container_width=True)
 
-    if not df_manifestacoes_filtrado.empty:
-        
-        st.markdown("---")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Principais Temas das Manifestações")
-            temas = df_manifestacoes_filtrado['Assunto'].value_counts().nlargest(10).reset_index()
-            temas.columns = ['Tema', 'Quantidade']
-            fig_temas = px.bar(temas, x='Quantidade', y='Tema', orientation='h', text='Quantidade')
-            fig_temas.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_temas, use_container_width=True)
-
-        with col2:
-            st.subheader("Tipos de Manifestações Registradas")
-            tipos_gerais = df_manifestacoes_filtrado['Tipo'].value_counts().reset_index()
-            tipos_gerais.columns = ['Tipo', 'Quantidade']
-            fig_tipos_gerais = px.bar(tipos_gerais, x='Quantidade', y='Tipo', orientation='h', text='Quantidade')
-            fig_tipos_gerais.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_tipos_gerais, use_container_width=True)
-
-        col3, col4 = st.columns(2)
-
-        with col3:
-            st.subheader("Distribuição de Manifestações por Área")
-            if "Área Responsável" in df_manifestacoes_filtrado.columns:
-                area_counts = df_manifestacoes_filtrado["Área Responsável"].value_counts().reset_index()
-                area_counts.columns = ['Área Responsável', 'Total de Manifestações']
-
-                total_row = pd.DataFrame({
-                    'Área Responsável': ['Total'],
-                    'Total de Manifestações': [area_counts['Total de Manifestações'].sum()]
-                })
-                
-                area_display_table = pd.concat([area_counts, total_row], ignore_index=True)
-                st.dataframe(area_display_table, use_container_width=True, hide_index=True)
-            else:
-                st.error("Coluna 'Área Responsável' não encontrada.")
-
-        with col4:
-            st.subheader("Situação Atual das Manifestações")
-            situacao = df_manifestacoes_filtrado['Situação'].value_counts().reset_index()
-            situacao.columns = ['Situação', 'Quantidade']
-            fig_situacao = px.bar(situacao, x='Quantidade', y='Situação', orientation='h', text='Quantidade')
-            fig_situacao.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_situacao, use_container_width=True)
-    else:
-        st.info("Nenhuma manifestação encontrada para o período selecionado.")
+    st.divider()
+    if "Area" in df_m_filt.columns:
+        st.subheader("Resumo por Unidade Responsável")
+        resumo = df_m_filt['Area'].value_counts().reset_index()
+        resumo.columns = ['Unidade Administrativa', 'Total']
+        # Mostra o total geral no final como o Riam queria
+        st.dataframe(resumo, use_container_width=True, hide_index=True)
+        st.info(f"Soma Total das Unidades: {resumo['Total'].sum()}")
