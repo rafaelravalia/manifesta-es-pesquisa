@@ -12,23 +12,33 @@ def tratar_texto(df):
             df[col] = df[col].astype(str).apply(lambda x: x.encode('latin-1', 'ignore').decode('utf-8', 'ignore').strip())
     return df
 
-# --- Função Anti-Duplicata ---
-def renomear_colunas_anvisa(df, mapa_desejado):
+# --- Função Anti-Duplicata e Mapeamento Inteligente ---
+def ajustar_estrutura_anvisa(df, mapa_desejado):
+    # Remove colunas que são exatamente iguais em nome e conteúdo (comum em CSVs sujos)
+    df = df.loc[:, ~df.columns.duplicated()]
+    
     colunas_novas = []
     contagem = {}
+    
     for col in df.columns:
-        nome_low = col.lower()
-        nome_final = col
+        nome_original = col.strip().encode('latin-1', 'ignore').decode('utf-8', 'ignore')
+        nome_low = nome_original.lower()
+        nome_final = nome_original
+        
+        # Busca por palavras-chave
         for chave, valor in mapa_desejado.items():
             if chave in nome_low:
                 nome_final = valor
                 break
+        
+        # Se o nome final (ex: 'Data') já foi usado, coloca um sufixo para o Plotly não travar
         if nome_final in contagem:
             contagem[nome_final] += 1
             colunas_novas.append(f"{nome_final}_{contagem[nome_final]}")
         else:
             contagem[nome_final] = 0
             colunas_novas.append(nome_final)
+            
     df.columns = colunas_novas
     return df
 
@@ -36,10 +46,10 @@ def renomear_colunas_anvisa(df, mapa_desejado):
 @st.cache_data
 def carregar_pesquisa():
     try:
-        # Ajustado para o nome exato da sua imagem: pesquisa (2).csv
-        df = pd.read_csv("pesquisa (2).csv", sep=";", encoding="latin-1", on_bad_lines='skip')
+        # Voltando para o nome padrão solicitado
+        df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
         mapa = {"satisfeito": "Satisfacao", "tipo": "Tipo", "área": "Area_Tecnica", "area": "Area_Tecnica", "resposta": "Data"}
-        df = renomear_colunas_anvisa(df, mapa)
+        df = ajustar_estrutura_anvisa(df, mapa)
         df = tratar_texto(df)
         if "Data" in df.columns:
             df["Data"] = pd.to_datetime(df["Data"], errors='coerce', dayfirst=True)
@@ -51,10 +61,9 @@ def carregar_pesquisa():
 @st.cache_data
 def carregar_manifestacoes():
     try:
-        # Ajustado para o nome exato da sua imagem: ListaManifestacaoAtualizadaa.csv
         df = pd.read_csv("ListaManifestacaoAtualizadaa.csv", sep=";", encoding="latin-1", skiprows=4, on_bad_lines='skip')
         mapa = {"assunto": "Assunto", "situa": "Situacao", "abertura": "Data", "área responsável": "Unidade", "area responsavel": "Unidade"}
-        df = renomear_colunas_anvisa(df, mapa)
+        df = ajustar_estrutura_anvisa(df, mapa)
         df = tratar_texto(df)
         if "Data" in df.columns:
             df["Data"] = pd.to_datetime(df["Data"], errors='coerce', dayfirst=True)
@@ -68,17 +77,18 @@ df_p = carregar_pesquisa()
 df_m = carregar_manifestacoes()
 
 if df_p is None or df_m is None:
-    st.error("Erro ao carregar arquivos. Verifique se 'pesquisa (2).csv' e 'ListaManifestacaoAtualizadaa.csv' estão no GitHub.")
+    st.error("Arquivo 'pesquisa.csv' ou 'ListaManifestacaoAtualizadaa.csv' não encontrado no GitHub.")
     st.stop()
 
 # --- Filtros ---
-st.sidebar.header("🗓️ Filtros")
+st.sidebar.header("🗓️ Filtros de Período")
 meses = sorted(df_m["mês"].unique(), reverse=True)
 escolha = st.sidebar.multiselect("Selecione os meses:", options=meses, default=meses[:3], format_func=lambda x: x.strftime('%B/%Y'))
+
 df_m_f = df_m[df_m["mês"].isin(escolha)]
 df_p_f = df_p[df_p["mês"].isin(escolha)] if "mês" in df_p.columns else df_p
 
-# --- Dashboard Layout ---
+# --- Layout ---
 st.title("📊 Dashboard Ouvidoria ANVISA")
 t1, t2 = st.tabs(["🎯 Pesquisa de Satisfação", "📂 Manifestações Gerais"])
 
@@ -108,7 +118,7 @@ with t2:
     with ca:
         if "Assunto" in df_m_f.columns:
             top = df_m_f["Assunto"].value_counts().nlargest(10).reset_index()
-            st.plotly_chart(px.bar(top, x='count', y='Assunto', orientation='h', title="Top 10 Assuntos"), use_container_width=True)
+            st.plotly_chart(px.bar(top, x='count', y='Assunto', orientation='h', title="Top 10 Assuntos Mais Recorrentes"), use_container_width=True)
     with cb:
         if "Situacao" in df_m_f.columns:
             st.plotly_chart(px.pie(df_m_f, names='Situacao', title="Status das Demandas", hole=0.4), use_container_width=True)
