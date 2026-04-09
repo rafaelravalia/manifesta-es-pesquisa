@@ -3,130 +3,166 @@ import pandas as pd
 import plotly.express as px
 
 # --- Configurações Iniciais ---
-st.set_page_config(page_title="Dashboard Ouvidoria ANVISA", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="Dashboard Ouvidoria ANVISA",
+    page_icon="📊",
+    layout="wide"
+)
 
-# --- Função de Limpeza de Texto ---
-def tratar_texto(df):
+# --- Função de Tratamento de Texto ---
+def limpar_e_corrigir(df):
+    # Remove colunas totalmente vazias ou repetidas que causam o erro de duplicatas
+    df = df.loc[:, ~df.columns.duplicated()]
     for col in df.columns:
         if df[col].dtype == 'object':
-            df[col] = df[col].astype(str).apply(lambda x: x.encode('latin-1', 'ignore').decode('utf-8', 'ignore').strip())
+            df[col] = df[col].astype(str).apply(
+                lambda x: x.encode('latin-1', 'ignore').decode('utf-8', 'ignore').strip()
+            )
     return df
 
-# --- Função Anti-Duplicata e Mapeamento Inteligente ---
-def ajustar_estrutura_anvisa(df, mapa_desejado):
-    # Remove colunas que são exatamente iguais em nome e conteúdo (comum em CSVs sujos)
-    df = df.loc[:, ~df.columns.duplicated()]
-    
-    colunas_novas = []
-    contagem = {}
-    
-    for col in df.columns:
-        nome_original = col.strip().encode('latin-1', 'ignore').decode('utf-8', 'ignore')
-        nome_low = nome_original.lower()
-        nome_final = nome_original
-        
-        # Busca por palavras-chave
-        for chave, valor in mapa_desejado.items():
-            if chave in nome_low:
-                nome_final = valor
-                break
-        
-        # Se o nome final (ex: 'Data') já foi usado, coloca um sufixo para o Plotly não travar
-        if nome_final in contagem:
-            contagem[nome_final] += 1
-            colunas_novas.append(f"{nome_final}_{contagem[nome_final]}")
-        else:
-            contagem[nome_final] = 0
-            colunas_novas.append(nome_final)
-            
-    df.columns = colunas_novas
-    return df
+# --- Carregamento de Dados com Caching ---
 
-# --- Carregamento de Dados ---
 @st.cache_data
 def carregar_pesquisa():
     try:
-        # Voltando para o nome padrão solicitado
+        # A pesquisa geralmente não tem as linhas de metadados no topo
         df = pd.read_csv("pesquisa.csv", sep=";", encoding="latin-1", on_bad_lines='skip')
-        mapa = {"satisfeito": "Satisfacao", "tipo": "Tipo", "área": "Area_Tecnica", "area": "Area_Tecnica", "resposta": "Data"}
-        df = ajustar_estrutura_anvisa(df, mapa)
-        df = tratar_texto(df)
+        df.columns = df.columns.str.strip()
+        df = limpar_e_corrigir(df)
+        
+        # Mapeamento dinâmico para garantir que os gráficos encontrem as colunas
+        mapa = {}
+        for c in df.columns:
+            low = c.lower()
+            if "satisfeito" in low: mapa[c] = "Satisfacao"
+            elif "tipo" in low and "manifesta" in low: mapa[c] = "Tipo"
+            elif "área" in low or low == "area": mapa[c] = "Area_Tecnica"
+            elif "resposta" in low and "pesquisa" in low: mapa[c] = "Data"
+        
+        df = df.rename(columns=mapa)
         if "Data" in df.columns:
             df["Data"] = pd.to_datetime(df["Data"], errors='coerce', dayfirst=True)
             df = df.dropna(subset=["Data"])
             df["mês"] = df["Data"].dt.to_period('M')
         return df
-    except: return None
+    except Exception as e:
+        st.error(f"Erro ao carregar pesquisa.csv: {e}")
+        return None
 
 @st.cache_data
 def carregar_manifestacoes():
     try:
+        # Manifestações da ANVISA costumam ter 4 linhas de cabeçalho administrativo
         df = pd.read_csv("ListaManifestacaoAtualizadaa.csv", sep=";", encoding="latin-1", skiprows=4, on_bad_lines='skip')
-        mapa = {"assunto": "Assunto", "situa": "Situacao", "abertura": "Data", "área responsável": "Unidade", "area responsavel": "Unidade"}
-        df = ajustar_estrutura_anvisa(df, mapa)
-        df = tratar_texto(df)
+        df.columns = df.columns.str.strip()
+        df = limpar_e_corrigir(df)
+        
+        mapa = {}
+        for c in df.columns:
+            low = c.lower()
+            if "assunto" in low and "sub" not in low: mapa[c] = "Assunto"
+            elif "situa" in low: mapa[c] = "Situacao"
+            elif "data" in low or "abertura" in low: mapa[c] = "Data"
+            elif "área responsável" in low or "area responsavel" in low: mapa[c] = "Unidade"
+        
+        df = df.rename(columns=mapa)
         if "Data" in df.columns:
             df["Data"] = pd.to_datetime(df["Data"], errors='coerce', dayfirst=True)
             df = df.dropna(subset=["Data"])
             df["mês"] = df["Data"].dt.to_period('M')
         return df
-    except: return None
+    except Exception as e:
+        st.error(f"Erro ao carregar ListaManifestacaoAtualizadaa.csv: {e}")
+        return None
 
-# --- Processamento ---
+# --- Execução do Carregamento ---
 df_p = carregar_pesquisa()
 df_m = carregar_manifestacoes()
 
 if df_p is None or df_m is None:
-    st.error("Arquivo 'pesquisa.csv' ou 'ListaManifestacaoAtualizadaa.csv' não encontrado no GitHub.")
     st.stop()
 
-# --- Filtros ---
-st.sidebar.header("🗓️ Filtros de Período")
-meses = sorted(df_m["mês"].unique(), reverse=True)
-escolha = st.sidebar.multiselect("Selecione os meses:", options=meses, default=meses[:3], format_func=lambda x: x.strftime('%B/%Y'))
+# --- Sidebar de Filtros ---
+st.sidebar.header("🗓️ Período de Análise")
+if "mês" in df_m.columns:
+    meses_m = set(df_m["mês"].unique())
+    meses_p = set(df_p["mês"].unique()) if "mês" in df_p.columns else set()
+    todos_meses = sorted(list(meses_m | meses_p), reverse=True)
+    
+    escolha_meses = st.sidebar.multiselect(
+        "Selecione os meses:", 
+        options=todos_meses, 
+        default=todos_meses[:3],
+        format_func=lambda x: x.strftime('%B / %Y')
+    )
+    
+    df_m_f = df_m[df_m["mês"].isin(escolha_meses)]
+    df_p_f = df_p[df_p["mês"].isin(escolha_meses)] if "mês" in df_p.columns else df_p
+else:
+    df_m_f, df_p_f = df_m, df_p
 
-df_m_f = df_m[df_m["mês"].isin(escolha)]
-df_p_f = df_p[df_p["mês"].isin(escolha)] if "mês" in df_p.columns else df_p
+# --- Dashboard Principal ---
+st.title("📊 Painel Estratégico | Ouvidoria ANVISA")
 
-# --- Layout ---
-st.title("📊 Dashboard Ouvidoria ANVISA")
-t1, t2 = st.tabs(["🎯 Pesquisa de Satisfação", "📂 Manifestações Gerais"])
+tab1, tab2 = st.tabs(["🎯 Pesquisa de Satisfação", "📂 Gestão de Manifestações"])
 
-with t1:
+with tab1:
     st.header("Análise de Satisfação")
     if not df_p_f.empty:
-        st.metric("Total de Respostas", len(df_p_f))
-        c1, c2 = st.columns(2)
-        with c1:
+        m1, m2 = st.columns(2)
+        m1.metric("Total de Respostas", len(df_p_f))
+        
+        st.divider()
+        col1, col2 = st.columns(2)
+        
+        with col1:
             if "Tipo" in df_p_f.columns:
-                st.plotly_chart(px.pie(df_p_f, names='Tipo', title="Tipo de Manifestação", hole=0.4), use_container_width=True)
-        with c2:
+                fig_tipo = px.pie(df_p_f, names='Tipo', title="Tipos de Manifestação", hole=0.4)
+                st.plotly_chart(fig_tipo, use_container_width=True)
+        
+        with col2:
             if "Satisfacao" in df_p_f.columns:
                 sat_data = df_p_f["Satisfacao"].value_counts().reset_index()
-                st.plotly_chart(px.bar(sat_data, x='count', y='Satisfacao', orientation='h', title="Satisfação", color='Satisfacao'), use_container_width=True)
+                fig_sat = px.bar(sat_data, x='count', y='Satisfacao', orientation='h', title="Nível de Satisfação", color='Satisfacao')
+                st.plotly_chart(fig_sat, use_container_width=True)
         
         st.divider()
         if "Area_Tecnica" in df_p_f.columns:
-            st.subheader("Volume por Área Técnica")
+            st.subheader("Volume por Área Técnica (Pesquisa)")
             area_data = df_p_f["Area_Tecnica"].value_counts().reset_index()
-            st.plotly_chart(px.bar(area_data, x='Area_Tecnica', y='count', color='Area_Tecnica', text_auto=True), use_container_width=True)
+            fig_area = px.bar(area_data, x='Area_Tecnica', y='count', text_auto=True, color='Area_Tecnica')
+            st.plotly_chart(fig_area, use_container_width=True)
+    else:
+        st.info("Nenhum dado de pesquisa encontrado para o período.")
 
-with t2:
-    st.header("Gestão de Demandas")
-    st.metric("Total de Manifestações", len(df_m_f))
-    ca, cb = st.columns(2)
-    with ca:
-        if "Assunto" in df_m_f.columns:
-            top = df_m_f["Assunto"].value_counts().nlargest(10).reset_index()
-            st.plotly_chart(px.bar(top, x='count', y='Assunto', orientation='h', title="Top 10 Assuntos Mais Recorrentes"), use_container_width=True)
-    with cb:
-        if "Situacao" in df_m_f.columns:
-            st.plotly_chart(px.pie(df_m_f, names='Situacao', title="Status das Demandas", hole=0.4), use_container_width=True)
-
-    st.divider()
-    if "Unidade" in df_m_f.columns:
-        st.subheader("Resumo por Unidade Responsável")
-        resumo = df_m_f["Unidade"].value_counts().reset_index()
-        resumo.columns = ['Unidade Administrativa', 'Total']
-        total_df = pd.DataFrame([['TOTAL GERAL', resumo['Total'].sum()]], columns=['Unidade Administrativa', 'Total'])
-        st.table(pd.concat([resumo, total_df], ignore_index=True))
+with tab2:
+    st.header("Gestão Geral de Demandas")
+    if not df_m_f.empty:
+        st.metric("Total de Manifestações", len(df_m_f))
+        
+        c_a, c_b = st.columns(2)
+        with c_a:
+            if "Assunto" in df_m_f.columns:
+                top_10 = df_m_f["Assunto"].value_counts().nlargest(10).reset_index()
+                fig_assunto = px.bar(top_10, x='count', y='Assunto', orientation='h', title="Top 10 Assuntos Recorrentes")
+                st.plotly_chart(fig_assunto, use_container_width=True)
+        
+        with c_b:
+            if "Situacao" in df_m_f.columns:
+                fig_sit = px.pie(df_m_f, names='Situacao', title="Situação Atual das Demandas", hole=0.4)
+                st.plotly_chart(fig_sit, use_container_width=True)
+        
+        st.divider()
+        if "Unidade" in df_m_f.columns:
+            st.subheader("Distribuição por Unidade Responsável")
+            resumo_u = df_m_f["Unidade"].value_counts().reset_index()
+            resumo_u.columns = ['Unidade Administrativa', 'Total de Demandas']
+            
+            # Cálculo do Total Geral para a tabela
+            total_geral = pd.DataFrame([['TOTAL GERAL', resumo_u['Total de Demandas'].sum()]], 
+                                     columns=['Unidade Administrativa', 'Total de Demandas'])
+            tabela_final = pd.concat([resumo_u, total_geral], ignore_index=True)
+            
+            st.dataframe(tabela_final, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma manifestação encontrada para o período.")
